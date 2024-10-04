@@ -1,33 +1,28 @@
 import { Request, Response } from "express";
 import { jobQueue, prisma } from "../connect/dbconnect";
-import { getCurrentDate } from "../utils/utils"; // Assuming you have a function to get the current date
-import { client, redisconnect } from "../connect/dbconnect";
+import { client, redisClient } from "../connect/dbconnect";
 import { Worker } from "bullmq";
 
-// Controller to get all Todos
 export const getAllTodos = async (req: Request, res: Response) => {
   try {
-    const todos = await prisma.todo.findMany();
+    // Check if data is in cache
+    const cachedTodos = await redisClient.get("todos");
+
+    if (cachedTodos) {
+      // If cached data exists, return it
+      return res.json(JSON.parse(cachedTodos));
+    }
+
+    // If not in cache, fetch from database
+    const todos = await prisma.todo.findMany({ where: { status: false } });
+
+    // Store in cache
+    await redisClient.setex("todos", 10, JSON.stringify(todos));
+
     res.json(todos);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
-  // try {
-  //     const result = await client.search({
-  //         index:"todos",
-  //         body:{
-
-  //             query: {
-  //                 match_all: {}
-  //             }
-  //         }
-  //     })
-
-  //     res.json(result.body.hits.hits);
-
-  // } catch (error:any) {
-  //     res.status(500).json({ message: error.message });
-  // }
 };
 
 // Controller to create a new Todo
@@ -59,7 +54,7 @@ export const updateTodo = async (req: Request, res: Response) => {
   console.log(num);
   const id = Number(num);
   const { task, description, complete, severity } = req.body;
-  const updatedat = getCurrentDate;
+  const updatedat = new Date();
 
   try {
     const job = await jobQueue.add("update", {
@@ -80,10 +75,9 @@ export const updateTodo = async (req: Request, res: Response) => {
 // Controller to delete a Todo
 export const deleteTodo = async (req: Request, res: Response) => {
   const { num } = req.params;
-  const id = Number(num);
-  const updatedat = new Date();
-  const status = true;
-  console.log(num); // Assuming this marks the item as deleted
+  const id: Number = Number(num);
+  const updatedat: Date = new Date();
+  const status: Boolean = true;
 
   try {
     const job = await jobQueue.add("delete", { id, updatedat, status });
@@ -95,7 +89,7 @@ export const deleteTodo = async (req: Request, res: Response) => {
 };
 
 // Worker to process jobs
-export const worker = new Worker(
+const worker: Worker = new Worker(
   "todoapp",
   async (job) => {
     try {
@@ -116,7 +110,7 @@ export const worker = new Worker(
       console.error(`Error processing ${job.name} job:`, error);
     }
   },
-  { connection: redisconnect }
+  { connection: redisClient }
 );
 
 // Function to handle the creation of a Todo item
@@ -159,7 +153,7 @@ async function handleCreateJob(data: any) {
 // Function to handle the update of a Todo item
 async function handleUpdateJob(data: any) {
   const { id, task, description, severity, complete, updatedat } = data;
-  console.log(id);
+  console.log(data);
   try {
     const updatedTodo = await prisma.todo.update({
       where: { id },
@@ -261,6 +255,18 @@ export const Aggregation = async (req: Request, res: Response) => {
   const { start, end }: any = req.body;
 
   try {
+    // Create a unique cache key based on start and end dates
+    const cacheKey = `aggregation:${start}:${end}`;
+
+    // Check if data is in cache
+    const cachedResult = await redisClient.get(cacheKey);
+
+    if (cachedResult) {
+      // If cached data exists, return it
+      return res.status(200).json(JSON.parse(cachedResult));
+    }
+
+    // If not in cache, perform the aggregation
     const result: any = await client.search({
       index: "todos",
       body: {
@@ -282,11 +288,14 @@ export const Aggregation = async (req: Request, res: Response) => {
       } as any, // Explicitly cast the body as 'any' to bypass type checks
     });
 
-    res
-      .status(200)
-      .json(result.body.aggregations?.severity_distribution?.buckets);
+    const aggregationResult =
+      result.body.aggregations?.severity_distribution?.buckets;
+
+    // Store in cache
+    await redisClient.setex(cacheKey, 10, JSON.stringify(aggregationResult));
+
+    res.status(200).json(aggregationResult);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
-  console.log(start, end, "..................................");
 };
