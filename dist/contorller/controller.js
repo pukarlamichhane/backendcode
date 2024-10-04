@@ -15,7 +15,7 @@ const dbconnect_2 = require("../connect/dbconnect");
 const bullmq_1 = require("bullmq");
 // Controller to get all Todos
 const getAllTodos = () => __awaiter(void 0, void 0, void 0, function* () {
-    const todos = yield dbconnect_1.prisma.todo.findMany();
+    const todos = yield dbconnect_1.prisma.todo.findMany({ where: { status: false } });
     return todos;
 });
 exports.getAllTodos = getAllTodos;

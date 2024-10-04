@@ -1,32 +1,31 @@
 import { Client } from "@opensearch-project/opensearch";
 import { PrismaClient } from "@prisma/client";
 import { Queue } from "bullmq";
-import IORedis from 'ioredis';
+import IORedis from "ioredis";
 
-export const prisma:PrismaClient = new PrismaClient;
+export const prisma: PrismaClient = new PrismaClient();
 
-export const client = new Client({
-    node:"http://localhost:9200"
-})
+export const client: Client = new Client({
+  node: "http://localhost:9200",
+});
 
-export const redisconnect = new IORedis({
-    host: 'localhost',
-    port: 6379,
-    maxRetriesPerRequest: null,
-})
+export const redisClient: IORedis = new IORedis({
+  host: "localhost",
+  port: 6379,
+  maxRetriesPerRequest: null,
+});
 
-
-export const jobQueue = new Queue('todoapp',{connection:redisconnect} );
+export const jobQueue = new Queue("todoapp", { connection: redisClient });
 
 export const books = [
-    {
-      id: "1",
-      title: 'The Awakening',
-      author: 'Kate Chopin',
-    },
-    {
-      id: "2",
-      title: 'City of Glass',
-      author: 'Paul Auster',
-    },
-  ];
+  {
+    id: "1",
+    title: "The Awakening",
+    author: "Kate Chopin",
+  },
+  {
+    id: "2",
+    title: "City of Glass",
+    author: "Paul Auster",
+  },
+];

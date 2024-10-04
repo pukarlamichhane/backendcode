@@ -1,5 +1,5 @@
 import { jobQueue, prisma } from "../connect/dbconnect";
-import { client, redisconnect } from "../connect/dbconnect";
+import { client, redisClient } from "../connect/dbconnect";
 import { Worker } from "bullmq";
 import {
   CreateTodoInput,
@@ -9,8 +9,26 @@ import {
 
 // Controller to get all Todos
 export const getAllTodos = async () => {
-  const todos = await prisma.todo.findMany();
-  return todos;
+  try {
+    // Check if data is in cache
+    const cachedTodos = await redisClient.get("todos");
+
+    if (cachedTodos) {
+      // If cached data exists, return it
+      return JSON.parse(cachedTodos);
+    }
+
+    // If not in cache, fetch from database
+    const todos = await prisma.todo.findMany({ where: { status: false } });
+
+    // Store in cache
+    await redisClient.setex("todos", 10, JSON.stringify(todos));
+
+    return todos;
+  } catch (error) {
+    console.error("Error fetching todos:", error);
+    throw error;
+  }
 };
 
 // Controller to create a new Todo
@@ -94,7 +112,7 @@ export const worker = new Worker(
       console.error(`Error processing ${job.name} job:`, error);
     }
   },
-  { connection: redisconnect }
+  { connection: redisClient }
 );
 
 // Function to handle the creation of a Todo item
@@ -206,6 +224,18 @@ export const Aggregation = async (getdate: getDate) => {
   console.log(endDate, "++++++++++++++++++++");
 
   try {
+    // Create a unique cache key based on start and end dates
+    const cacheKey = `aggregation:${startDate}:${endDate}`;
+
+    // Check if data is in cache
+    const cachedResult = await redisClient.get(cacheKey);
+
+    if (cachedResult) {
+      // If cached data exists, return it
+      return JSON.parse(cachedResult);
+    }
+
+    // If not in cache, perform the aggregation
     const result: any = await client.search({
       index: "todos",
       body: {
@@ -231,11 +261,16 @@ export const Aggregation = async (getdate: getDate) => {
       result.body.aggregations?.severity_distribution?.buckets || [];
     console.log("Severity distribution:", buckets);
 
-    // Map the buckets to the desired format and return
-    return buckets.map((bucket: any) => ({
+    // Map the buckets to the desired format
+    const formattedResult = buckets.map((bucket: any) => ({
       key: bucket.key,
       doc_count: bucket.doc_count,
     }));
+
+    // Store in cache
+    await redisClient.setex(cacheKey, 10, JSON.stringify(formattedResult));
+
+    return formattedResult;
   } catch (error) {
     console.error("Error fetching severity distribution:", error);
     return [];
